@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D RPG 캐릭터 커스텀 & 몬스터 펫 아카데미</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #111827;
+        }
+
+        .font-jua {
+            font-family: 'Jua', sans-serif;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        /* Damage text animation */
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-40px) scale(1.3); }
+        }
+        .damage-num {
+            position: absolute;
+            font-family: 'Jua', sans-serif;
+            font-weight: bold;
+            pointer-events: none;
+            animation: floatUp 0.8s ease-out forwards;
+            text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+        }
+
+        /* Canvas Overlay Controls */
+        #game-canvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden text-white">
+
+    <div id="canvas-container" class="absolute inset-0 w-full h-full">
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <div class="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none z-10">
+        <!-- Player Info -->
+        <div class="glass-panel p-4 rounded-2xl flex items-center gap-4 pointer-events-auto border-l-4 border-indigo-500 shadow-2xl">
+            <div class="relative w-14 h-14 bg-indigo-900/50 rounded-xl flex items-center justify-center border border-indigo-400/30 overflow-hidden">
+                <i class="fa-solid fa-user-ninja text-3xl text-indigo-400"></i>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <span id="player-name-display" class="font-jua text-xl text-yellow-300">용감한 모험가</span>
+                    <span class="bg-indigo-600 text-xs px-2 py-0.5 rounded-full font-bold">Lv. <span id="player-level">1</span></span>
+                </div>
+                <!-- HP Bar -->
+                <div class="w-48 bg-gray-700 h-3.5 rounded-full overflow-hidden mt-1.5 border border-gray-600 relative">
+                    <div id="hp-bar" class="bg-gradient-to-r from-red-600 to-red-400 h-full w-full transition-all duration-300"></div>
+                    <span id="hp-text" class="absolute inset-0 text-[10px] flex items-center justify-center font-bold drop-shadow">100 / 100</span>
+                </div>
+                <!-- EXP Bar -->
+                <div class="w-48 bg-gray-700 h-2 rounded-full overflow-hidden mt-1 border border-gray-600 relative">
+                    <div id="exp-bar" class="bg-gradient-to-r from-yellow-500 to-amber-300 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inventory / Mini Dashboard -->
+        <div class="flex gap-2 pointer-events-auto">
+            <button id="btn-custom" class="glass-panel px-4 py-2.5 rounded-xl flex items-center gap-2 hover:bg-indigo-600/50 transition font-jua text-sm border border-indigo-400/30 shadow-lg">
+                <i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i> 캐릭터 꾸미기
+            </button>
+            <button id="btn-inventory" class="glass-panel px-4 py-2.5 rounded-xl flex items-center gap-2 hover:bg-yellow-600/50 transition font-jua text-sm border border-yellow-400/30 shadow-lg relative">
+                <i class="fa-solid fa-egg text-yellow-400"></i> 알 & 펫 (<span id="egg-count">0</span>)
+                <span id="egg-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping"></span>
+            </button>
+            <button id="btn-help" class="glass-panel p-2.5 rounded-xl flex items-center justify-center hover:bg-gray-700/50 transition border border-gray-500/30">
+                <i class="fa-solid fa-circle-question text-lg text-gray-300"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 glass-panel px-6 py-3 rounded-2xl pointer-events-auto border-t-2 border-indigo-500 shadow-2xl">
+        <!-- Weapon Switcher -->
+        <div class="flex items-center gap-1 border-r border-gray-700 pr-3">
+            <button id="btn-weapon-1" onclick="switchWeapon('sword')" class="w-11 h-11 rounded-xl bg-indigo-600/80 hover:bg-indigo-500 flex flex-col items-center justify-center border border-indigo-300 transition group relative">
+                <i class="fa-solid fa-sword text-lg text-white"></i>
+                <span class="text-[9px] text-gray-200">검</span>
+            </button>
+            <button id="btn-weapon-2" onclick="switchWeapon('staff')" class="w-11 h-11 rounded-xl bg-gray-800/80 hover:bg-indigo-600/50 flex flex-col items-center justify-center border border-gray-700 transition group relative">
+                <i class="fa-solid fa-wand-sparkles text-lg text-purple-400"></i>
+                <span class="text-[9px] text-gray-400">지팡이</span>
+            </button>
+            <button id="btn-weapon-3" onclick="switchWeapon('bow')" class="w-11 h-11 rounded-xl bg-gray-800/80 hover:bg-indigo-600/50 flex flex-col items-center justify-center border border-gray-700 transition group relative">
+                <i class="fa-solid fa-bow-arrow text-lg text-amber-400"></i>
+                <span class="text-[9px] text-gray-400">활</span>
+            </button>
+        </div>
+
+        <!-- Skills -->
+        <div class="flex items-center gap-3">
+            <!-- Attack Button -->
+            <button id="btn-skill-attack" onclick="useSkill('attack')" class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-400 hover:from-red-500 hover:to-rose-300 flex flex-col items-center justify-center border-2 border-red-300 shadow-lg shadow-red-900/50 active:scale-95 transition">
+                <i class="fa-solid fa-burst text-2xl text-white"></i>
+                <span class="text-[10px] font-bold mt-0.5">공격 (Space)</span>
+            </button>
+
+            <!-- Skill 1 -->
+            <button id="btn-skill-1" onclick="useSkill('skill1')" class="relative w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 hover:from-blue-500 hover:to-cyan-300 flex flex-col items-center justify-center border border-blue-300 shadow-md active:scale-95 transition group">
+                <i class="fa-solid fa-bolt text-lg text-white"></i>
+                <span class="text-[9px] font-bold">스킬1 (1)</span>
+                <div id="cooldown-skill1" class="absolute inset-0 bg-black/70 rounded-xl hidden flex items-center justify-center text-xs font-bold text-cyan-300"></div>
+            </button>
+
+            <!-- Skill 2 -->
+            <button id="btn-skill-2" onclick="useSkill('skill2')" class="relative w-12 h-12 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-400 hover:from-purple-500 hover:to-pink-300 flex flex-col items-center justify-center border border-purple-300 shadow-md active:scale-95 transition group">
+                <i class="fa-solid fa-tornado text-lg text-white"></i>
+                <span class="text-[9px] font-bold">스킬2 (2)</span>
+                <div id="cooldown-skill2" class="absolute inset-0 bg-black/70 rounded-xl hidden flex items-center justify-center text-xs font-bold text-pink-300"></div>
+            </button>
+
+            <!-- Skill 3 (Heal) -->
+            <button id="btn-skill-3" onclick="useSkill('heal')" class="relative w-12 h-12 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 hover:from-emerald-500 hover:to-teal-300 flex flex-col items-center justify-center border border-emerald-300 shadow-md active:scale-95 transition group">
+                <i class="fa-solid fa-heart-pulse text-lg text-white"></i>
+                <span class="text-[9px] font-bold">회복 (3)</span>
+                <div id="cooldown-heal" class="absolute inset-0 bg-black/70 rounded-xl hidden flex items-center justify-center text-xs font-bold text-emerald-300"></div>
+            </button>
+        </div>
+    </div>
+
+    <!-- Movement Controls Notice / Mini Guide -->
+    <div class="absolute bottom-6 left-6 glass-panel px-4 py-3 rounded-xl text-xs text-gray-300 hidden md:block border border-gray-700/50">
+        <div class="font-bold text-yellow-400 mb-1 flex items-center gap-1.5">
+            <i class="fa-solid fa-gamepad"></i> 조작 방법
+        </div>
+        <div><span class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-bold">W A S D</span> : 이동 (앞, 왼쪽, 뒤, 오른쪽)</div>
+        <div class="mt-1"><span class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-bold">Space</span> : 일반 공격</div>
+        <div class="mt-1"><span class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-bold">1, 2, 3</span> : 스킬 사용</div>
+        <div class="mt-1"><span class="bg-gray-700 px-1.5 py-0.5 rounded text-white font-bold">마우스 드래그</span> : 시점 회전</div>
+    </div>
+
+    <div id="modal-custom" class="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-end p-4 md:p-8 z-30 transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div class="glass-panel w-full max-w-md h-[90vh] rounded-3xl p-6 flex flex-col justify-between border border-indigo-500/40 shadow-2xl overflow-y-auto">
+            <div>
+                <!-- Header -->
+                <div class="flex justify-between items-center pb-4 border-b border-gray-700">
+                    <h2 class="font-jua text-2xl text-indigo-400 flex items-center gap-2">
+                        <i class="fa-solid fa-paint-brush"></i> 나만의 캐릭터 디자인
+                    </h2>
+                    <button id="close-custom" class="text-gray-400 hover:text-white text-xl p-1"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <!-- Customization Tabs -->
+                <div class="mt-4 space-y-5">
+                    <!-- Character Name Input -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-1.5">캐릭터 이름</label>
+                        <input type="text" id="custom-name-input" value="용감한 모험가" maxlength="10" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+
+                    <!-- Head / Hair Selection -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-2">머리 모양 (헤어 스타일)</label>
+                        <div class="grid grid-cols-4 gap-2" id="hair-options">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Hair Color -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-2">머리 색상</label>
+                        <div class="flex gap-2 flex-wrap" id="hair-color-options">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Outfit Selection -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-2">의상 디자인</label>
+                        <div class="grid grid-cols-4 gap-2" id="outfit-options">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Outfit Color -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-2">의상 주요 색상</label>
+                        <div class="flex gap-2 flex-wrap" id="outfit-color-options">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Skin Tone -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-2">피부 톤</label>
+                        <div class="flex gap-2 flex-wrap" id="skin-color-options">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Accessories / Hats -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 mb-2">모자 / 악세서리</label>
+                        <div class="grid grid-cols-4 gap-2" id="hat-options">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Save Buttons -->
+            <div class="pt-4 border-t border-gray-700 mt-6 flex gap-3">
+                <button id="btn-save-character" class="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 py-3 rounded-xl font-jua text-base shadow-lg transition">
+                    <i class="fa-solid fa-floppy-disk mr-1"></i> 디자인 저장하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-inventory" class="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-30 transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div class="glass-panel w-full max-w-xl rounded-3xl p-6 flex flex-col border border-yellow-500/40 shadow-2xl max-h-[85vh]">
+            <div class="flex justify-between items-center pb-4 border-b border-gray-700">
+                <h2 class="font-jua text-2xl text-yellow-400 flex items-center gap-2">
+                    <i class="fa-solid fa-egg"></i> 몬스터 알 & 동료 펫
+                </h2>
+                <button id="close-inventory" class="text-gray-400 hover:text-white text-xl p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="py-4 overflow-y-auto space-y-6 flex-1">
+                <!-- Egg Hatching Section -->
+                <div class="bg-gray-800/60 p-4 rounded-2xl border border-gray-700">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="font-bold text-sm text-yellow-300 flex items-center gap-2">
+                            <i class="fa-solid fa-cubes-stacked"></i> 보유 중인 알: <span id="modal-egg-count" class="text-white font-jua text-lg">0</span>개
+                        </span>
+                        <span class="text-xs text-gray-400">부화 성공 확률: <strong class="text-emerald-400">10%</strong></span>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-4">몬스터 처치 시 50% 확률로 알을 획득합니다. 알을 깨트려 희귀한 펫을 부화시켜보세요!</p>
+                    
+                    <button id="btn-hatch-egg" class="w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 py-3 rounded-xl font-jua text-base shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-hammer mr-1"></i> 알 깨부수기 (1개 소모)
+                    </button>
+                </div>
+
+                <!-- Hatching Result Message Display -->
+                <div id="hatch-result-box" class="hidden p-3 rounded-xl text-center font-jua text-sm transition-all"></div>
+
+                <!-- Active Pet & Pet Collection List -->
+                <div>
+                    <h3 class="font-jua text-lg text-indigo-300 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-paw"></i> 동행 중인 펫
+                    </h3>
+                    <div id="active-pet-card" class="bg-indigo-950/40 border border-indigo-500/30 p-4 rounded-2xl flex items-center gap-4">
+                        <div class="w-16 h-16 bg-gray-800 rounded-xl flex items-center justify-center text-3xl border border-gray-700" id="active-pet-icon">
+                            ❓
+                        </div>
+                        <div>
+                            <div id="active-pet-name" class="font-jua text-lg text-white">동행하는 펫 없음</div>
+                            <div id="active-pet-desc" class="text-xs text-gray-400 mt-0.5">알을 부화시켜 함께 싸울 펫을 구해보세요!</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unlocked Pets -->
+                <div>
+                    <h3 class="font-jua text-lg text-gray-300 mb-2">보유 펫 목록</h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3" id="pet-list-container">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-help" class="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-40 transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div class="glass-panel w-full max-w-md rounded-3xl p-6 border border-gray-600 shadow-2xl">
+            <div class="flex justify-between items-center pb-3 border-b border-gray-700">
+                <h2 class="font-jua text-xl text-indigo-300 flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info"></i> 게임 안내 및 도움말
+                </h2>
+                <button id="close-help" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="py-4 text-sm text-gray-300 space-y-3 font-sans">
+                <p>🎨 <strong>나만의 캐릭터 만들기:</strong> 우측 상단의 '캐릭터 꾸미기' 버튼을 눌러 머리, 옷, 색상, 모자를 마음대로 바꿀 수 있습니다.</p>
+                <p>⚔️ <strong>몬스터 사냥 & 전투:</strong> W, A, S, D로 캐릭터를 움직이고 스페이스바로 공격하거나 1,2,3 스킬로 몬스터를 물리치세요.</p>
+                <p>🥚 <strong>알 드롭 & 10% 펫 부화:</strong> 몬스터 사망 시 <span class="text-yellow-400 font-bold">50% 확률</span>로 몬스터 알을 떨어뜨립니다. 알 메뉴에서 알을 깨면 <span class="text-emerald-400 font-bold">10% 확률</span>로 전투 펫이 탄생합니다!</p>
+                <p>🐾 <strong>동행 펫:</strong> 펫은 플레이어 옆을 항상 따라다니며 nearby 몬스터를 발견하면 자동으로 강력한 지원 사격을 가합니다.</p>
+            </div>
+            <button id="btn-close-help-confirm" class="w-full bg-gray-700 hover:bg-gray-600 py-2.5 rounded-xl font-jua text-white mt-2">
+                확인
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const GAME_STATE = {
+            player: {
+                name: "용감한 모험가",
+                level: 1,
+                hp: 100,
+                maxHp: 100,
+                exp: 0,
+                maxExp: 100,
+                weapon: "sword", // sword, staff, bow
+                custom: {
+                    hairStyle: 0,
+                    hairColor: '#4b2c20',
+                    outfitStyle: 0,
+                    outfitColor: '#3b82f6',
+                    skinColor: '#ffdbac',
+                    hatStyle: 0
+                }
+            },
+            eggs: 0,
+            pets: [], // Unlocked pet IDs
+            activePet: null,
+            monsters: [],
+            projectiles: [],
+            effects: []
+        };
+
+        // Customization Options Preset
+        const CUSTOM_OPTIONS = {
+            hairStyles: [
+                { id: 0, name: "기본 숏컷" },
+                { id: 1, name: "포니테일" },
+                { id: 2, name: "볼륨 파마" },
+                { id: 3, name: "마법사 캡" }
+            ],
+            hairColors: ['#2c1a1d', '#4b2c20', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#10b981', '#f3f4f6'],
+            outfitStyles: [
+                { id: 0, name: "전사 갑옷" },
+                { id: 1, name: "마법사 로브" },
+                { id: 2, name: "궁수 코트" },
+                { id: 3, name: "모험가 의상" }
+            ],
+            outfitColors: ['#3b82f6', '#ef4444', '#10b981', '#8b5cf6', '#f59e0b', '#374151', '#ec4899', '#6366f1'],
+            skinColors: ['#ffdbac', '#f1c27d', '#e0ac69', '#8d5524', '#c68642', '#fff0f5'],
+            hatStyles: [
+                { id: 0, name: "없음" },
+                { id: 1, name: "기사 투구" },
+                { id: 2, name: "마법사 모자" },
+                { id: 3, name: "왕관" }
+            ]
+        };
+
+        // Pet Types Metadata
+        const PET_TYPES = [
+            { id: "baby_dragon", name: "아기 드래곤", icon: "🐉", color: 0xef4444, damage: 15, speed: 0.08, desc: "불꽃을 뿜어 적을 공격합니다." },
+            { id: "slime_buddy", name: "말랑 슬라임", icon: "🟢", color: 0x10b981, damage: 10, speed: 0.07, desc: "상대에게 강력한 몸통 박치기를 합니다." },
+            { id: "cute_phoenix", name: "꼬마 피닉스", icon: "🐥", color: 0xf59e0b, damage: 20, speed: 0.1, desc: "신성한 화염으로 공격을 지원합니다." },
+            { id: "shadow_cat", name: "다크 캐트", icon: "🐱", color: 0x8b5cf6, damage: 18, speed: 0.09, desc: "그림자처럼 재빨리 적을 기습합니다." }
+        ];
+
+        let scene, camera, renderer;
+        let playerMesh, playerGroup, hairMesh, bodyMesh, hatMesh;
+        let petMesh = null;
+        let keys = {};
+        const clock = new THREE.Clock();
+
+        // Initialize 3D Graphics Engine
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1e1b4b);
+            scene.fog = new THREE.FogExp2(0x1e1b4b, 0.015);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xfffaed, 0.8);
+            dirLight.position.set(30, 50, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 150;
+            const d = 40;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            scene.add(dirLight);
+
+            // Environment Terrain & RPG Field Setup
+            createEnvironment();
+
+            // Create Player Mesh
+            createPlayerMesh();
+
+            // Resize listener
+            window.addEventListener('resize', onWindowResize);
+
+            // Keyboard listeners
+            window.addEventListener('keydown', (e) => {
+                keys[e.key.toLowerCase()] = true;
+                if (e.code === 'Space') {
+                    useSkill('attack');
+                } else if (e.key === '1') {
+                    useSkill('skill1');
+                } else if (e.key === '2') {
+                    useSkill('skill2');
+                } else if (e.key === '3') {
+                    useSkill('heal');
+                }
+            });
+            window.addEventListener('keyup', (e) => {
+                keys[e.key.toLowerCase()] = false;
+            });
+
+            // Initial Monster Spawning
+            spawnInitialMonsters();
+        }
+
+        function createEnvironment() {
+            // Ground Mesh
+            const groundGeo = new THREE.PlaneGeometry(120, 120, 32, 32);
+            const groundMat = new THREE.MeshStandardMaterial({ 
+                color: 0x2e4f32, 
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Circular RPG Arena Wall Decorative Pillars
+            const pillarGeo = new THREE.CylinderGeometry(0.8, 1, 4, 8);
+            const pillarMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.7 });
+            
+            for (let i = 0; i < 20; i++) {
+                const angle = (i / 20) * Math.PI * 2;
+                const radius = 55;
+                const px = Math.cos(angle) * radius;
+                const pz = Math.sin(angle) * radius;
+                
+                const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+                pillar.position.set(px, 2, pz);
+                pillar.castShadow = true;
+                pillar.receiveShadow = true;
+                scene.add(pillar);
+
+                // Add glowing crystal atop each pillar
+                const crystalGeo = new THREE.OctahedronGeometry(0.5);
+                const crystalMat = new THREE.MeshStandardMaterial({ 
+                    color: 0x6366f1, 
+                    emissive: 0x4338ca, 
+                    emissiveIntensity: 0.8 
+                });
+                const crystal = new THREE.Mesh(crystalGeo, crystalMat);
+                crystal.position.set(px, 4.5, pz);
+                scene.add(crystal);
+            }
+
+            // Decorative Trees & Rocks
+            for (let i = 0; i < 35; i++) {
+                const rx = (Math.random() - 0.5) * 90;
+                const rz = (Math.random() - 0.5) * 90;
+                if (Math.hypot(rx, rz) > 8) { // Keep center clear
+                    createTree(rx, rz);
+                }
+            }
+        }
+
+        function createTree(x, z) {
+            const treeGroup = new THREE.Group();
+            
+            // Trunk
+            const trunkGeo = new THREE.CylinderGeometry(0.3, 0.5, 2.5, 6);
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x543d2b });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 1.25;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            // Foliage
+            const leavesGeo = new THREE.ConeGeometry(1.8, 3.5, 6);
+            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.8 });
+            const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+            leaves.position.y = 3.5;
+            leaves.castShadow = true;
+            treeGroup.add(leaves);
+
+            treeGroup.position.set(x, 0, z);
+            scene.add(treeGroup);
+        }
+
+        function createPlayerMesh() {
+            if (playerGroup) scene.remove(playerGroup);
+
+            playerGroup = new THREE.Group();
+
+            const skinHex = parseInt(GAME_STATE.player.custom.skinColor.replace('#', '0x'));
+            const hairHex = parseInt(GAME_STATE.player.custom.hairColor.replace('#', '0x'));
+            const outfitHex = parseInt(GAME_STATE.player.custom.outfitColor.replace('#', '0x'));
+
+            // Materials
+            const skinMat = new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.5 });
+            const hairMat = new THREE.MeshStandardMaterial({ color: hairHex, roughness: 0.6 });
+            const outfitMat = new THREE.MeshStandardMaterial({ color: outfitHex, roughness: 0.5 });
+            const darkMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+
+            // Body / Torso
+            const bodyGeo = new THREE.CylinderGeometry(0.4, 0.3, 1.2, 8);
+            bodyMesh = new THREE.Mesh(bodyGeo, outfitMat);
+            bodyMesh.position.y = 1.1;
+            bodyMesh.castShadow = true;
+            playerGroup.add(bodyMesh);
+
+            // Head
+            const headGeo = new THREE.SphereGeometry(0.45, 16, 16);
+            const headMesh = new THREE.Mesh(headGeo, skinMat);
+            headMesh.position.y = 2.0;
+            headMesh.castShadow = true;
+            playerGroup.add(headMesh);
+
+            // Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
+            const leftEye = new THREE.Mesh(eyeGeo, darkMat);
+            leftEye.position.set(0.15, 2.05, 0.38);
+            const rightEye = new THREE.Mesh(eyeGeo, darkMat);
+            rightEye.position.set(-0.15, 2.05, 0.38);
+            playerGroup.add(leftEye);
+            playerGroup.add(rightEye);
+
+            // Hair
+            hairMesh = new THREE.Group();
+            const hStyle = GAME_STATE.player.custom.hairStyle;
+            if (hStyle === 0) { // Short
+                const hGeo = new THREE.SphereGeometry(0.48, 12, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+                const hM = new THREE.Mesh(hGeo, hairMat);
+                hM.position.y = 2.05;
+                hairMesh.add(hM);
+            } else if (hStyle === 1) { // Ponytail
+                const hGeo = new THREE.SphereGeometry(0.48, 12, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+                const hM = new THREE.Mesh(hGeo, hairMat);
+                hM.position.y = 2.05;
+                const tailGeo = new THREE.ConeGeometry(0.2, 0.8, 8);
+                const tailM = new THREE.Mesh(tailGeo, hairMat);
+                tailM.rotation.x = -Math.PI / 3;
+                tailM.position.set(0, 2.1, -0.45);
+                hairMesh.add(hM);
+                hairMesh.add(tailM);
+            } else if (hStyle === 2) { // Curly / Large
+                const hGeo = new THREE.DodecahedronGeometry(0.55);
+                const hM = new THREE.Mesh(hGeo, hairMat);
+                hM.position.y = 2.1;
+                hairMesh.add(hM);
+            } else { // Wizard Cap / Hood Style
+                const hGeo = new THREE.ConeGeometry(0.6, 0.8, 8);
+                const hM = new THREE.Mesh(hGeo, hairMat);
+                hM.position.y = 2.3;
+                hairMesh.add(hM);
+            }
+            playerGroup.add(hairMesh);
+
+            // Hat Attachment
+            hatMesh = new THREE.Group();
+            const hatStyle = GAME_STATE.player.custom.hatStyle;
+            if (hatStyle === 1) { // Knight Helmet
+                const helmGeo = new THREE.BoxGeometry(0.95, 0.5, 0.95);
+                const helmM = new THREE.Mesh(helmGeo, new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.8 }));
+                helmM.position.y = 2.15;
+                hatMesh.add(helmM);
+            } else if (hatStyle === 2) { // Wizard Hat
+                const brimGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.05, 12);
+                const coneGeo = new THREE.ConeGeometry(0.5, 1.2, 12);
+                const wizardMat = new THREE.MeshStandardMaterial({ color: 0x4338ca });
+                const brim = new THREE.Mesh(brimGeo, wizardMat);
+                brim.position.y = 2.35;
+                const cone = new THREE.Mesh(coneGeo, wizardMat);
+                cone.position.y = 2.95;
+                hatMesh.add(brim);
+                hatMesh.add(cone);
+            } else if (hatStyle === 3) { // Crown
+                const crownGeo = new THREE.CylinderGeometry(0.45, 0.4, 0.3, 8);
+                const crownMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.9, roughness: 0.2 });
+                const crown = new THREE.Mesh(crownGeo, crownMat);
+                crown.position.y = 2.45;
+                hatMesh.add(crown);
+            }
+            playerGroup.add(hatMesh);
+
+            // Add Weapon Model to Player Hand
+            attachWeaponToPlayer();
+
+            playerGroup.position.set(0, 0, 0);
+            scene.add(playerGroup);
+        }
+
+        let currentWeaponMesh = null;
+        function attachWeaponToPlayer() {
+            if (currentWeaponMesh) playerGroup.remove(currentWeaponMesh);
+
+            currentWeaponMesh = new THREE.Group();
+            const wType = GAME_STATE.player.weapon;
+
+            if (wType === 'sword') {
+                const bladeGeo = new THREE.BoxGeometry(0.1, 1.2, 0.05);
+                const bladeMat = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, metalness: 0.9, roughness: 0.1 });
+                const blade = new THREE.Mesh(bladeGeo, bladeMat);
+                blade.position.set(0.5, 1.2, 0.2);
+                blade.rotation.z = -Math.PI / 6;
+                currentWeaponMesh.add(blade);
+            } else if (wType === 'staff') {
+                const staffGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.8, 8);
+                const staffMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
+                const staff = new THREE.Mesh(staffGeo, staffMat);
+                staff.position.set(0.5, 1.2, 0.2);
+
+                const orbGeo = new THREE.SphereGeometry(0.18, 12, 12);
+                const orbMat = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0x9333ea, emissiveIntensity: 0.8 });
+                const orb = new THREE.Mesh(orbGeo, orbMat);
+                orb.position.set(0.5, 2.1, 0.2);
+
+                currentWeaponMesh.add(staff);
+                currentWeaponMesh.add(orb);
+            } else if (wType === 'bow') {
+                const bowGeo = new THREE.TorusGeometry(0.5, 0.03, 8, 12, Math.PI);
+                const bowMat = new THREE.MeshStandardMaterial({ color: 0xb45309 });
+                const bow = new THREE.Mesh(bowGeo, bowMat);
+                bow.position.set(0.5, 1.2, 0.2);
+                bow.rotation.y = Math.PI / 2;
+                currentWeaponMesh.add(bow);
+            }
+
+            playerGroup.add(currentWeaponMesh);
+        }
+
+        function spawnInitialMonsters() {
+            for (let i = 0; i < 6; i++) {
+                spawnMonster();
+            }
+        }
+
+        function spawnMonster() {
+            const types = [
+                { name: "고블린", color: 0x22c55e, hp: 60, speed: 0.04, scale: 0.8, exp: 25 },
+                { name: "오크 전사", color: 0x15803d, hp: 120, speed: 0.03, scale: 1.2, exp: 50 },
+                { name: "스켈레톤", color: 0xe5e7eb, hp: 80, speed: 0.05, scale: 0.9, exp: 35 },
+                { name: "화염 드래곤", color: 0xef4444, hp: 250, speed: 0.02, scale: 1.8, exp: 120 }
+            ];
+
+            const template = types[Math.floor(Math.random() * types.length)];
+            const monGroup = new THREE.Group();
+
+            // Monster Body
+            const bodyGeo = new THREE.SphereGeometry(0.6 * template.scale, 12, 12);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: template.color, roughness: 0.7 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.6 * template.scale;
+            body.castShadow = true;
+            monGroup.add(body);
+
+            // Red Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.08 * template.scale, 8, 8);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye1.position.set(0.2 * template.scale, 0.7 * template.scale, 0.5 * template.scale);
+            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye2.position.set(-0.2 * template.scale, 0.7 * template.scale, 0.5 * template.scale);
+            monGroup.add(eye1);
+            monGroup.add(eye2);
+
+            // Random Position outside starting safe zone
+            let rx, rz;
+            do {
+                rx = (Math.random() - 0.5) * 80;
+                rz = (Math.random() - 0.5) * 80;
+            } while (Math.hypot(rx, rz) < 12);
+
+            monGroup.position.set(rx, 0, rz);
+            scene.add(monGroup);
+
+            GAME_STATE.monsters.push({
+                mesh: monGroup,
+                name: template.name,
+                hp: template.hp,
+                maxHp: template.hp,
+                speed: template.speed,
+                exp: template.exp,
+                scale: template.scale
+            });
+        }
+
+        function createPetMesh(petId) {
+            if (petMesh) scene.remove(petMesh);
+
+            const petData = PET_TYPES.find(p => p.id === petId);
+            if (!petData) return;
+
+            petMesh = new THREE.Group();
+            const pGeo = new THREE.SphereGeometry(0.35, 12, 12);
+            const pMat = new THREE.MeshStandardMaterial({ color: petData.color, emissive: petData.color, emissiveIntensity: 0.3 });
+            const core = new THREE.Mesh(pGeo, pMat);
+            core.position.y = 0.5;
+            petMesh.add(core);
+
+            // Cute Wings or Ears
+            const wingGeo = new THREE.ConeGeometry(0.15, 0.4, 4);
+            const wingMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const w1 = new THREE.Mesh(wingGeo, wingMat);
+            w1.rotation.z = Math.PI / 3;
+            w1.position.set(0.35, 0.6, 0);
+            const w2 = new THREE.Mesh(wingGeo, wingMat);
+            w2.rotation.z = -Math.PI / 3;
+            w2.position.set(-0.35, 0.6, 0);
+            petMesh.add(w1);
+            petMesh.add(w2);
+
+            petMesh.position.copy(playerGroup.position).add(new THREE.Vector3(-1.5, 0, -1.5));
+            scene.add(petMesh);
+        }
+
+        function useSkill(type) {
+            if (GAME_STATE.player.hp <= 0) return;
+
+            const playerPos = playerGroup.position;
+
+            if (type === 'attack') {
+                // Find nearest monster
+                let nearestMon = null;
+                let minDist = 8; // Range
+
+                GAME_STATE.monsters.forEach(m => {
+                    const dist = playerPos.distanceTo(m.mesh.position);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nearestMon = m;
+                    }
+                });
+
+                // Spawn Attack Visual Effect
+                createSlashEffect(playerPos);
+
+                if (nearestMon) {
+                    const dmg = Math.floor(20 + Math.random() * 15);
+                    damageMonster(nearestMon, dmg);
+                }
+            } else if (type === 'skill1') { // Lightning / Fire Arc
+                createAoEEffect(playerPos, 0x3b82f6);
+                GAME_STATE.monsters.forEach(m => {
+                    if (playerPos.distanceTo(m.mesh.position) < 10) {
+                        damageMonster(m, 35);
+                    }
+                });
+            } else if (type === 'skill2') { // Tornado / Burst
+                createAoEEffect(playerPos, 0xec4899);
+                GAME_STATE.monsters.forEach(m => {
+                    if (playerPos.distanceTo(m.mesh.position) < 12) {
+                        damageMonster(m, 50);
+                    }
+                });
+            } else if (type === 'heal') { // Self Heal
+                GAME_STATE.player.hp = Math.min(GAME_STATE.player.maxHp, GAME_STATE.player.hp + 40);
+                updatePlayerHUD();
+                showFloatingText("+40 HP", playerPos, "#10b981");
+                createAoEEffect(playerPos, 0x10b981);
+            }
+        }
+
+        function damageMonster(mon, amount) {
+            mon.hp -= amount;
+            showFloatingText(`-${amount}`, mon.mesh.position, "#ef4444");
+
+            // Flash Monster Red
+            mon.mesh.children.forEach(c => {
+                if (c.material && c.material.color) {
+                    const origColor = c.material.color.getHex();
+                    c.material.color.setHex(0xff0000);
+                    setTimeout(() => c.material.color.setHex(origColor), 150);
+                }
+            });
+
+            // Monster Defeated
+            if (mon.hp <= 0) {
+                // Drop Egg Chance (50%)
+                if (Math.random() < 0.5) {
+                    GAME_STATE.eggs++;
+                    updateEggUI();
+                    showFloatingText("🥚 몬스터 알 획득!", mon.mesh.position, "#f59e0b");
+                }
+
+                // Grant EXP
+                GAME_STATE.player.exp += mon.exp;
+                if (GAME_STATE.player.exp >= GAME_STATE.player.maxExp) {
+                    GAME_STATE.player.level++;
+                    GAME_STATE.player.exp -= GAME_STATE.player.maxExp;
+                    GAME_STATE.player.maxExp = Math.floor(GAME_STATE.player.maxExp * 1.3);
+                    GAME_STATE.player.maxHp += 20;
+                    GAME_STATE.player.hp = GAME_STATE.player.maxHp;
+                    showFloatingText("LEVEL UP!", playerGroup.position, "#f59e0b");
+                }
+                updatePlayerHUD();
+
+                // Remove from scene
+                scene.remove(mon.mesh);
+                GAME_STATE.monsters = GAME_STATE.monsters.filter(m => m !== mon);
+
+                // Respawn new monster after short delay
+                setTimeout(spawnMonster, 3000);
+            }
+        }
+
+        function createSlashEffect(pos) {
+            const ringGeo = new THREE.RingGeometry(0.5, 2, 16);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0xfcd34d, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.copy(pos).add(new THREE.Vector3(0, 0.5, 0));
+            scene.add(ring);
+
+            GAME_STATE.effects.push({ mesh: ring, life: 1.0, scaleSpeed: 0.1 });
+        }
+
+        function createAoEEffect(pos, colorHex) {
+            const ringGeo = new THREE.RingGeometry(1, 4, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.copy(pos).add(new THREE.Vector3(0, 0.2, 0));
+            scene.add(ring);
+
+            GAME_STATE.effects.push({ mesh: ring, life: 1.0, scaleSpeed: 0.15 });
+        }
+
+        function showFloatingText(text, pos3D, colorStr) {
+            // Convert 3D world pos to 2D Screen Pos
+            const vector = pos3D.clone();
+            vector.y += 2;
+            vector.project(camera);
+
+            const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-(vector.y * 0.5) + 0.5) * window.innerHeight;
+
+            const el = document.createElement('div');
+            el.className = 'damage-num text-xl';
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
+            el.style.color = colorStr;
+            el.innerText = text;
+
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 800);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // 1. Movement Logic (W, A, S, D)
+            if (playerGroup && GAME_STATE.player.hp > 0) {
+                const speed = 8 * delta;
+                let moveX = 0;
+                let moveZ = 0;
+
+                if (keys['w']) moveZ -= 1; // Forward
+                if (keys['s']) moveZ += 1; // Backward
+                if (keys['a']) moveX -= 1; // Left
+                if (keys['d']) moveX += 1; // Right
+
+                if (moveX !== 0 || moveZ !== 0) {
+                    const moveVector = new THREE.Vector3(moveX, 0, moveZ).normalize().multiplyScalar(speed);
+                    playerGroup.position.add(moveVector);
+
+                    // Face Movement Direction
+                    const angle = Math.atan2(moveX, moveZ);
+                    playerGroup.rotation.y = angle;
+
+                    // Walking Bounce Animation
+                    playerGroup.position.y = Math.abs(Math.sin(time * 12)) * 0.15;
+                } else {
+                    playerGroup.position.y = 0;
+                }
+
+                // Camera Follow Player
+                camera.position.x = playerGroup.position.x;
+                camera.position.z = playerGroup.position.z + 14;
+                camera.position.y = playerGroup.position.y + 12;
+                camera.lookAt(playerGroup.position.x, playerGroup.position.y + 1, playerGroup.position.z);
+            }
+
+            // 2. Pet Following & AI Attack Logic
+            if (petMesh && GAME_STATE.activePet) {
+                // Pet Float & Hover Animation
+                const targetPos = playerGroup.position.clone().add(new THREE.Vector3(1.5 * Math.sin(time * 2), 0.8 + Math.sin(time * 4) * 0.2, 1.5 * Math.cos(time * 2)));
+                petMesh.position.lerp(targetPos, 0.05);
+
+                // Pet Auto Attack Nearest Monster
+                const petData = PET_TYPES.find(p => p.id === GAME_STATE.activePet);
+                if (petData && GAME_STATE.monsters.length > 0) {
+                    let closestMon = null;
+                    let cDist = 12;
+                    GAME_STATE.monsters.forEach(m => {
+                        const d = petMesh.position.distanceTo(m.mesh.position);
+                        if (d < cDist) {
+                            cDist = d;
+                            closestMon = m;
+                        }
+                    });
+
+                    // Pet attacks every 2 seconds automatically
+                    if (closestMon && Math.floor(time * 10) % 20 === 0) {
+                        damageMonster(closestMon, petData.damage);
+                        createSlashEffect(closestMon.mesh.position);
+                    }
+                }
+            }
+
+            // 3. Monsters AI Pursuit Logic
+            GAME_STATE.monsters.forEach(mon => {
+                const distToPlayer = mon.mesh.position.distanceTo(playerGroup.position);
+                if (distToPlayer < 15 && distToPlayer > 1.2) {
+                    const dir = playerGroup.position.clone().sub(mon.mesh.position).normalize();
+                    mon.mesh.position.add(dir.multiplyScalar(mon.speed));
+                    mon.mesh.lookAt(playerGroup.position.x, mon.mesh.position.y, playerGroup.position.z);
+                } else if (distToPlayer <= 1.2) {
+                    // Attack Player
+                    if (Math.floor(time * 10) % 15 === 0) {
+                        GAME_STATE.player.hp = Math.max(0, GAME_STATE.player.hp - 8);
+                        updatePlayerHUD();
+                        showFloatingText("-8 HP", playerGroup.position, "#ef4444");
+                    }
+                }
+            });
+
+            // 4. Update Particle Effects
+            for (let i = GAME_STATE.effects.length - 1; i >= 0; i--) {
+                const eff = GAME_STATE.effects[i];
+                eff.life -= delta * 2;
+                eff.mesh.scale.addScalar(eff.scaleSpeed);
+                eff.mesh.material.opacity = eff.life;
+
+                if (eff.life <= 0) {
+                    scene.remove(eff.mesh);
+                    GAME_STATE.effects.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function initUI() {
+            // Populate Hair Options
+            const hairOptContainer = document.getElementById('hair-options');
+            CUSTOM_OPTIONS.hairStyles.forEach((h, idx) => {
+                const btn = document.createElement('button');
+                btn.className = `p-2 rounded-xl text-xs font-jua border transition ${idx === GAME_STATE.player.custom.hairStyle ? 'bg-indigo-600 border-indigo-300' : 'bg-gray-800 border-gray-700 hover:bg-gray-700'}`;
+                btn.innerText = h.name;
+                btn.onclick = () => {
+                    GAME_STATE.player.custom.hairStyle = h.id;
+                    createPlayerMesh();
+                    initUI();
+                };
+                hairOptContainer.appendChild(btn);
+            });
+
+            // Hair Colors
+            const hairColorContainer = document.getElementById('hair-color-options');
+            hairColorContainer.innerHTML = '';
+            CUSTOM_OPTIONS.hairColors.forEach(color => {
+                const colorBtn = document.createElement('button');
+                colorBtn.className = `w-7 h-7 rounded-full border-2 transition ${GAME_STATE.player.custom.hairColor === color ? 'scale-110 border-white' : 'border-transparent'}`;
+                colorBtn.style.backgroundColor = color;
+                colorBtn.onclick = () => {
+                    GAME_STATE.player.custom.hairColor = color;
+                    createPlayerMesh();
+                    initUI();
+                };
+                hairColorContainer.appendChild(colorBtn);
+            });
+
+            // Outfit Styles
+            const outfitOptContainer = document.getElementById('outfit-options');
+            outfitOptContainer.innerHTML = '';
+            CUSTOM_OPTIONS.outfitStyles.forEach((o, idx) => {
+                const btn = document.createElement('button');
+                btn.className = `p-2 rounded-xl text-xs font-jua border transition ${idx === GAME_STATE.player.custom.outfitStyle ? 'bg-indigo-600 border-indigo-300' : 'bg-gray-800 border-gray-700 hover:bg-gray-700'}`;
+                btn.innerText = o.name;
+                btn.onclick = () => {
+                    GAME_STATE.player.custom.outfitStyle = o.id;
+                    createPlayerMesh();
+                    initUI();
+                };
+                outfitOptContainer.appendChild(btn);
+            });
+
+            // Outfit Colors
+            const outfitColorContainer = document.getElementById('outfit-color-options');
+            outfitColorContainer.innerHTML = '';
+            CUSTOM_OPTIONS.outfitColors.forEach(color => {
+                const colorBtn = document.createElement('button');
+                colorBtn.className = `w-7 h-7 rounded-full border-2 transition ${GAME_STATE.player.custom.outfitColor === color ? 'scale-110 border-white' : 'border-transparent'}`;
+                colorBtn.style.backgroundColor = color;
+                colorBtn.onclick = () => {
+                    GAME_STATE.player.custom.outfitColor = color;
+                    createPlayerMesh();
+                    initUI();
+                };
+                outfitColorContainer.appendChild(colorBtn);
+            });
+
+            // Skin Colors
+            const skinColorContainer = document.getElementById('skin-color-options');
+            skinColorContainer.innerHTML = '';
+            CUSTOM_OPTIONS.skinColors.forEach(color => {
+                const colorBtn = document.createElement('button');
+                colorBtn.className = `w-7 h-7 rounded-full border-2 transition ${GAME_STATE.player.custom.skinColor === color ? 'scale-110 border-white' : 'border-transparent'}`;
+                colorBtn.style.backgroundColor = color;
+                colorBtn.onclick = () => {
+                    GAME_STATE.player.custom.skinColor = color;
+                    createPlayerMesh();
+                    initUI();
+                };
+                skinColorContainer.appendChild(colorBtn);
+            });
+
+            // Hat Options
+            const hatOptContainer = document.getElementById('hat-options');
+            hatOptContainer.innerHTML = '';
+            CUSTOM_OPTIONS.hatStyles.forEach((hat, idx) => {
+                const btn = document.createElement('button');
+                btn.className = `p-2 rounded-xl text-xs font-jua border transition ${idx === GAME_STATE.player.custom.hatStyle ? 'bg-indigo-600 border-indigo-300' : 'bg-gray-800 border-gray-700 hover:bg-gray-700'}`;
+                btn.innerText = hat.name;
+                btn.onclick = () => {
+                    GAME_STATE.player.custom.hatStyle = hat.id;
+                    createPlayerMesh();
+                    initUI();
+                };
+                hatOptContainer.appendChild(btn);
+            });
+
+            renderPetUI();
+        }
+
+        document.getElementById('btn-hatch-egg').onclick = () => {
+            if (GAME_STATE.eggs <= 0) return;
+
+            GAME_STATE.eggs--;
+            updateEggUI();
+
+            const resultBox = document.getElementById('hatch-result-box');
+            resultBox.classList.remove('hidden', 'bg-red-900/50', 'text-red-300', 'bg-emerald-900/50', 'text-emerald-300');
+
+            // 10% Chance of Success
+            const success = Math.random() < 0.10;
+
+            if (success) {
+                // Pick a random unowned pet or random pet
+                const newPet = PET_TYPES[Math.floor(Math.random() * PET_TYPES.length)];
+                if (!GAME_STATE.pets.includes(newPet.id)) {
+                    GAME_STATE.pets.push(newPet.id);
+                }
+                GAME_STATE.activePet = newPet.id;
+                createPetMesh(newPet.id);
+
+                resultBox.classList.add('bg-emerald-900/50', 'text-emerald-300');
+                resultBox.innerHTML = `🎉 축하합니다! [${newPet.name}] 이(가) 부화했습니다!`;
+            } else {
+                resultBox.classList.add('bg-red-900/50', 'text-red-300');
+                resultBox.innerHTML = `💔 알이 부화하지 못하고 깨져버렸습니다... (10% 확률)`;
+            }
+
+            renderPetUI();
+        };
+
+        function renderPetUI() {
+            const container = document.getElementById('pet-list-container');
+            container.innerHTML = '';
+
+            PET_TYPES.forEach(pet => {
+                const isUnlocked = GAME_STATE.pets.includes(pet.id);
+                const isActive = GAME_STATE.activePet === pet.id;
+
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-2xl border flex flex-col justify-between transition ${isUnlocked ? (isActive ? 'bg-indigo-900/60 border-indigo-400' : 'bg-gray-800 border-gray-700') : 'bg-gray-900/40 border-gray-800 opacity-50'}`;
+                card.innerHTML = `
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-2xl">${pet.icon}</span>
+                        <div>
+                            <div class="font-jua text-sm text-white">${pet.name}</div>
+                            <div class="text-[10px] text-gray-400">데미지: ${pet.damage}</div>
+                        </div>
+                    </div>
+                    <button class="w-full py-1.5 rounded-lg font-jua text-xs transition ${isUnlocked ? (isActive ? 'bg-emerald-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white') : 'bg-gray-700 text-gray-500 cursor-not-allowed'}" ${!isUnlocked ? 'disabled' : ''}>
+                        ${isActive ? '동행 중' : (isUnlocked ? '장착하기' : '미보유')}
+                    </button>
+                `;
+
+                if (isUnlocked && !isActive) {
+                    card.querySelector('button').onclick = () => {
+                        GAME_STATE.activePet = pet.id;
+                        createPetMesh(pet.id);
+                        renderPetUI();
+                    };
+                }
+
+                container.appendChild(card);
+            });
+
+            // Active Pet Display Update
+            const activePetData = PET_TYPES.find(p => p.id === GAME_STATE.activePet);
+            if (activePetData) {
+                document.getElementById('active-pet-icon').innerText = activePetData.icon;
+                document.getElementById('active-pet-name').innerText = activePetData.name;
+                document.getElementById('active-pet-desc').innerText = activePetData.desc;
+            }
+        }
+
+        function updateEggUI() {
+            document.getElementById('egg-count').innerText = GAME_STATE.eggs;
+            document.getElementById('modal-egg-count').innerText = GAME_STATE.eggs;
+            const badge = document.getElementById('egg-badge');
+            if (GAME_STATE.eggs > 0) {
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function updatePlayerHUD() {
+            document.getElementById('player-level').innerText = GAME_STATE.player.level;
+            const hpPercent = (GAME_STATE.player.hp / GAME_STATE.player.maxHp) * 100;
+            document.getElementById('hp-bar').style.width = `${hpPercent}%`;
+            document.getElementById('hp-text').innerText = `${GAME_STATE.player.hp} / ${GAME_STATE.player.maxHp}`;
+
+            const expPercent = (GAME_STATE.player.exp / GAME_STATE.player.maxExp) * 100;
+            document.getElementById('exp-bar').style.width = `${expPercent}%`;
+        }
+
+        function switchWeapon(type) {
+            GAME_STATE.player.weapon = type;
+            attachWeaponToPlayer();
+
+            ['sword', 'staff', 'bow'].forEach((w, i) => {
+                const btn = document.getElementById(`btn-weapon-${i + 1}`);
+                if (w === type) {
+                    btn.className = "w-11 h-11 rounded-xl bg-indigo-600/80 hover:bg-indigo-500 flex flex-col items-center justify-center border border-indigo-300 transition group relative";
+                } else {
+                    btn.className = "w-11 h-11 rounded-xl bg-gray-800/80 hover:bg-indigo-600/50 flex flex-col items-center justify-center border border-gray-700 transition group relative";
+                }
+            });
+        }
+
+        function toggleModal(modalId, show) {
+            const modal = document.getElementById(modalId);
+            if (show) {
+                modal.classList.remove('pointer-events-none', 'opacity-0');
+                modal.classList.add('opacity-100');
+            } else {
+                modal.classList.add('pointer-events-none', 'opacity-0');
+                modal.classList.remove('opacity-100');
+            }
+        }
+
+        document.getElementById('btn-custom').onclick = () => toggleModal('modal-custom', true);
+        document.getElementById('close-custom').onclick = () => toggleModal('modal-custom', false);
+        document.getElementById('btn-inventory').onclick = () => toggleModal('modal-inventory', true);
+        document.getElementById('close-inventory').onclick = () => toggleModal('modal-inventory', false);
+        document.getElementById('btn-help').onclick = () => toggleModal('modal-help', true);
+        document.getElementById('close-help').onclick = () => toggleModal('modal-help', false);
+        document.getElementById('btn-close-help-confirm').onclick = () => toggleModal('modal-help', false);
+
+        document.getElementById('btn-save-character').onclick = () => {
+            const nameInput = document.getElementById('custom-name-input').value.trim();
+            if (nameInput) {
+                GAME_STATE.player.name = nameInput;
+                document.getElementById('player-name-display').innerText = nameInput;
+            }
+            toggleModal('modal-custom', false);
+        };
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Window Load Bootstrapper
+        window.onload = function () {
+            initThreeJS();
+            initUI();
+            updatePlayerHUD();
+            animate();
+        };
+    </script>
+</body>
+</html>
